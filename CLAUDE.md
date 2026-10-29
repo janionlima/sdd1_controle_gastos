@@ -21,8 +21,14 @@ Documentação interativa: http://127.0.0.1:8000/docs
 Testes (dependências de desenvolvimento ficam em `requirements-dev.txt`):
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest            # usa banco temporário por teste; nunca toca o gastos.db
+python -m pytest                          # suíte inteira (usa banco temporário por teste; nunca toca o gastos.db)
+python -m pytest -v tests/test_filtros.py # um arquivo, mostrando cada teste
+python -m pytest -k resumo                # só os testes cujo nome contém "resumo"
 ```
+Convenções da suíte: um arquivo `test_<área>.py` por recurso/aula; cada teste começa com banco vazio e
+cria seus dados via API (fixtures `criar_transacao`/`criar_categoria`); casos de erro usam
+`@pytest.mark.parametrize` e conferem o corpo exato `{"erro": ...}`; listas são comparadas por ids na
+ordem da API (`data DESC, id DESC`).
 
 ## Estrutura de pastas
 ```
@@ -31,7 +37,12 @@ app/
   database.py    # acesso a dados: DB_PATH, get_connection(), SCHEMA, init_db()
   models.py      # schemas Pydantic de entrada/saída
   routes/        # um router por recurso (ex.: transacoes.py)
-tests/           # pytest + TestClient: conftest.py (fixture `client` com banco temporário) e test_<área>.py
+tests/           # pytest + TestClient (ver "Testes" abaixo)
+  conftest.py         # fixtures: client (banco temporário), criar_transacao, criar_categoria; helper ids()
+  test_transacoes.py  # Aulas 1–2: CRUD, ordenação, 404, validação 422 (POST e PUT)
+  test_categorias.py  # Aula 3: categorias, nome único, categoria_id opcional/inexistente
+  test_filtros.py     # Aulas 3 e 5: filtros isolados e combinados, limites inclusivos, 422
+  test_resumo.py      # Aula 4: /saldo e /resumo (mês cheio, vazio, mes inválido)
 specs/           # specs de cada aula (fonte de verdade dos requisitos)
 docs/            # roteiro de prompts
 .claude/commands # slash commands do projeto (/implementar-spec)
