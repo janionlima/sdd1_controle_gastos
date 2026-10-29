@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.database import init_db
-from app.routes import transacoes
+from app.routes import categorias, transacoes
 
 
 @asynccontextmanager
@@ -19,6 +19,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Controle de Gastos Pessoais", lifespan=lifespan)
 app.include_router(transacoes.router)
+app.include_router(categorias.router)
 
 # Tradução dos tipos de erro do Pydantic para mensagens do projeto.
 _MENSAGENS = {
@@ -29,6 +30,7 @@ _MENSAGENS = {
     "literal_error": "deve ser 'entrada' ou 'saida'",
     "string_too_short": "não pode ser vazia",
     "int_parsing": "deve ser um número inteiro",
+    "int_type": "deve ser um número inteiro",
     "missing": "campo obrigatório",
 }
 

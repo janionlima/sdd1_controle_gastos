@@ -66,11 +66,30 @@ docs/            # roteiro de prompts
   | `data` fora de `YYYY-MM-DD` ou inexistente | `data: deve ser uma data válida no formato YYYY-MM-DD` |
   | `descricao` vazia/só espaços | `descricao: não pode ser vazia` |
   | `id` da rota não inteiro | `id: deve ser um número inteiro` |
+  | `categoria_id` não inteiro (inclui booleano e string) | `categoria_id: deve ser um número inteiro` |
+  | `categoria_id` inexistente | `categoria_id: categoria <id> não existe` |
+  | `nome` de categoria vazio / só dígitos | `nome: não pode ser vazia` / `nome: não pode conter apenas dígitos` |
+  | `nome` de categoria repetido | `nome: categoria '<nome>' já existe` |
+  | `?categoria=` vazio | `categoria: não pode ser vazia` |
   | campo ausente | `<campo>: campo obrigatório` |
   | JSON inválido | `corpo da requisição não é um JSON válido` |
   | outros | `<campo>: <mensagem original do Pydantic>` |
 - **`descricao` é gravada sem espaços nas pontas** (`strip_whitespace`); `data` só aceita string ISO estrita.
 - **`valor` é estrito** (`strict=True`): aceita só número JSON (int ou float); booleano e número em string são recusados.
+- **(Aula 3) `categoria_id` é opcional** (pode ser `null`): mantém compatíveis as transações antigas e os
+  clientes das Aulas 1–2, e o `PUT` (substituição completa) não obriga a escolher categoria. Um `categoria_id`
+  enviado com id inexistente responde 422 `{"erro": "categoria_id: categoria <id> não existe"}`.
+- **(Aula 3) Filtro por categoria inexistente retorna `200 []`**, não 404: `categoria` é um filtro de busca
+  sobre `/transacoes`, que existe, e fica consistente com os filtros combináveis da Aula 5.
+- **(Aula 3) `?categoria=<valor>`: só dígitos = id, qualquer outro valor = nome.** Por isso o nome de uma
+  categoria não pode ser só dígitos (422).
+- **(Aula 3) Nome de categoria é único sem diferenciar maiúsculas** (`COLLATE NOCASE` na coluna; vale também
+  no filtro). É gravado sem espaços nas pontas; acentos diferenciam ("alimentação" ≠ "alimentacao").
+  Duplicado é regra de negócio: 422 via `HTTPException`.
+- **(Aula 3) `PUT` sem `categoria_id` deixa a transação sem categoria** (consequência da substituição completa).
+  No `PUT`, a checagem de `categoria_id` inexistente (422) vem antes da de transação inexistente (404).
+- **(Aula 3) Migração de schema:** `init_db()` adiciona `categoria_id` com `ALTER TABLE` em bancos antigos
+  (as transações existentes ficam com `null`). `PRAGMA foreign_keys = ON` em toda conexão (`get_connection`).
 
 ## Fluxo de trabalho
 - Implementar uma spec por vez com `/implementar-spec specs/<arquivo>.md`: plano → aprovação → implementação → verificação dos critérios de aceite → commit.

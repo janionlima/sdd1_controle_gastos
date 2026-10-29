@@ -11,12 +11,18 @@ DB_PATH = os.getenv(
 
 # Cada tabela entra aqui com CREATE TABLE IF NOT EXISTS.
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS categoria (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nome TEXT NOT NULL UNIQUE COLLATE NOCASE
+);
+
 CREATE TABLE IF NOT EXISTS transacao (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     data TEXT NOT NULL,            -- ISO YYYY-MM-DD
     descricao TEXT NOT NULL,
     valor_centavos INTEGER NOT NULL,
-    tipo TEXT NOT NULL CHECK (tipo IN ('entrada', 'saida'))
+    tipo TEXT NOT NULL CHECK (tipo IN ('entrada', 'saida')),
+    categoria_id INTEGER REFERENCES categoria(id)
 );
 """
 
@@ -24,6 +30,7 @@ CREATE TABLE IF NOT EXISTS transacao (
 def get_connection() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
 
@@ -32,6 +39,11 @@ def init_db() -> None:
     conn = get_connection()
     try:
         conn.executescript(SCHEMA)
+        # Migração (Aula 3): bancos criados antes das categorias não têm a coluna.
+        colunas = {r["name"] for r in conn.execute("PRAGMA table_info(transacao)")}
+        if "categoria_id" not in colunas:
+            conn.execute("ALTER TABLE transacao ADD COLUMN categoria_id INTEGER REFERENCES categoria(id)")
+            conn.commit()
     finally:
         conn.close()
 
@@ -44,6 +56,7 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
         "descricao": row["descricao"],
         "valor": row["valor_centavos"] / 100,
         "tipo": row["tipo"],
+        "categoria_id": row["categoria_id"],
     }
 
 
@@ -51,12 +64,12 @@ def _para_centavos(valor: float) -> int:
     return round(valor * 100)
 
 
-def criar_transacao(data: str, descricao: str, valor: float, tipo: str) -> dict:
+def criar_transacao(data: str, descricao: str, valor: float, tipo: str, categoria_id: int | None) -> dict:
     conn = get_connection()
     try:
         cur = conn.execute(
-            "INSERT INTO transacao (data, descricao, valor_centavos, tipo) VALUES (?, ?, ?, ?)",
-            (data, descricao, _para_centavos(valor), tipo),
+            "INSERT INTO transacao (data, descricao, valor_centavos, tipo, categoria_id) VALUES (?, ?, ?, ?, ?)",
+            (data, descricao, _para_centavos(valor), tipo, categoria_id),
         )
         conn.commit()
         row = conn.execute("SELECT * FROM transacao WHERE id = ?", (cur.lastrowid,)).fetchone()
@@ -74,13 +87,16 @@ def buscar_transacao(id: int) -> dict | None:
         conn.close()
 
 
-def atualizar_transacao(id: int, data: str, descricao: str, valor: float, tipo: str) -> dict | None:
+def atualizar_transacao(
+    id: int, data: str, descricao: str, valor: float, tipo: str, categoria_id: int | None
+) -> dict | None:
     """Substitui todos os campos da transação; retorna None se o id não existir."""
     conn = get_connection()
     try:
         cur = conn.execute(
-            "UPDATE transacao SET data = ?, descricao = ?, valor_centavos = ?, tipo = ? WHERE id = ?",
-            (data, descricao, _para_centavos(valor), tipo, id),
+            "UPDATE transacao SET data = ?, descricao = ?, valor_centavos = ?, tipo = ?, categoria_id = ?"
+            " WHERE id = ?",
+            (data, descricao, _para_centavos(valor), tipo, categoria_id, id),
         )
         conn.commit()
         if cur.rowcount == 0:
@@ -102,10 +118,54 @@ def excluir_transacao(id: int) -> bool:
         conn.close()
 
 
-def listar_transacoes() -> list[dict]:
+def listar_transacoes(categoria: str | None = None) -> list[dict]:
+    """Lista transações; `categoria` só com dígitos é id, senão é nome (sem diferenciar maiúsculas)."""
     conn = get_connection()
     try:
-        rows = conn.execute("SELECT * FROM transacao ORDER BY data DESC, id DESC").fetchall()
+        if categoria is None:
+            rows = conn.execute("SELECT * FROM transacao ORDER BY data DESC, id DESC").fetchall()
+        elif categoria.isdigit():
+            rows = conn.execute(
+                "SELECT * FROM transacao WHERE categoria_id = ? ORDER BY data DESC, id DESC",
+                (int(categoria),),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM transacao WHERE categoria_id IN (SELECT id FROM categoria WHERE nome = ?)"
+                " ORDER BY data DESC, id DESC",
+                (categoria,),
+            ).fetchall()
         return [_row_to_dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def criar_categoria(nome: str) -> dict | None:
+    """Cria a categoria; retorna None se já existir uma com esse nome."""
+    conn = get_connection()
+    try:
+        try:
+            cur = conn.execute("INSERT INTO categoria (nome) VALUES (?)", (nome,))
+        except sqlite3.IntegrityError:
+            return None
+        conn.commit()
+        return {"id": cur.lastrowid, "nome": nome}
+    finally:
+        conn.close()
+
+
+def buscar_categoria(id: int) -> dict | None:
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT id, nome FROM categoria WHERE id = ?", (id,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def listar_categorias() -> list[dict]:
+    conn = get_connection()
+    try:
+        return [dict(r) for r in conn.execute("SELECT id, nome FROM categoria ORDER BY nome").fetchall()]
     finally:
         conn.close()
