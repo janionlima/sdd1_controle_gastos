@@ -53,6 +53,8 @@ docs/            # roteiro de prompts
 - **`PUT` é substituição completa:** mesmo schema e mesmas validações do `POST` (`TransacaoCreate`).
 - **Todo erro usa o corpo `{"erro": ...}`**, não só o 422: um handler de `HTTPException` em `app/main.py`
   converte `detail` → `erro` mantendo o status (ex.: 404 `{"erro": "Transação 7 não encontrada"}`).
+- **Validação antes da existência:** em `PUT /transacoes/{id}` o corpo é validado primeiro; corpo inválido
+  responde 422 mesmo que o `id` não exista. Só com corpo válido o `id` inexistente responde 404.
 - **Mensagens de validação em português**, formato `"<campo>: <mensagem>"` (só o primeiro erro).
   Tradução por tipo de erro do Pydantic em `_MENSAGENS` (`app/main.py`):
 
