@@ -14,9 +14,26 @@ seguindo Spec-Driven Development (SDD): cada feature tem uma spec em `specs/`, i
 python -m venv .venv
 .venv\Scripts\activate          # Windows  (Linux/macOS: source .venv/bin/activate)
 pip install -r requirements.txt
-uvicorn app.main:app --reload
+uvicorn app.main:app --reload    # desenvolvimento
+python -m app                    # host/porta vindos do ambiente (HOST, PORT)
 ```
-Documentação interativa: http://127.0.0.1:8000/docs
+Dashboard: http://127.0.0.1:8000/ · Documentação interativa: http://127.0.0.1:8000/docs ·
+Extrato: http://127.0.0.1:8000/export.csv
+
+Deploy (Docker; também há `Procfile` para plataformas sem Docker):
+```bash
+docker build -t controle-gastos .
+docker run -d -p 8000:8000 -v gastos-dados:/data controle-gastos            # porta padrão 8000
+docker run -d -e PORT=9000 -p 9000:9000 -v gastos-dados:/data controle-gastos  # porta via env
+```
+
+| Variável | Padrão | Uso |
+|---|---|---|
+| `HOST` | `127.0.0.1` (Docker: `0.0.0.0`) | interface de rede; `0.0.0.0` para aceitar conexões externas |
+| `PORT` | `8000` | porta HTTP (plataformas PaaS definem sozinhas) |
+| `GASTOS_DB_PATH` | `./gastos.db` (Docker: `/data/gastos.db`) | arquivo SQLite; em deploy, num volume persistente |
+
+Exemplo em `.env.example`. O app não usa credenciais/segredos; `.env` está no `.gitignore`.
 
 Testes (dependências de desenvolvimento ficam em `requirements-dev.txt`):
 ```bash
@@ -36,13 +53,20 @@ app/
   main.py        # cria o FastAPI, inicializa o banco (lifespan), handler de erro 422, inclui routers
   database.py    # acesso a dados: DB_PATH, get_connection(), SCHEMA, init_db()
   models.py      # schemas Pydantic de entrada/saída
-  routes/        # um router por recurso (ex.: transacoes.py)
+  __main__.py    # `python -m app`: uvicorn com HOST/PORT do ambiente
+  routes/        # um router por recurso: transacoes, categorias, resumo (/saldo, /resumo),
+                 #   export (/export.csv), dashboard (/)
+  static/        # dashboard.html (HTML estático + Chart.js por CDN)
+Dockerfile, .dockerignore, Procfile, .env.example   # deploy
 tests/           # pytest + TestClient (ver "Testes" abaixo)
   conftest.py         # fixtures: client (banco temporário), criar_transacao, criar_categoria; helper ids()
   test_transacoes.py  # Aulas 1–2: CRUD, ordenação, 404, validação 422 (POST e PUT)
   test_categorias.py  # Aula 3: categorias, nome único, categoria_id opcional/inexistente
   test_filtros.py     # Aulas 3 e 5: filtros isolados e combinados, limites inclusivos, 422
   test_resumo.py      # Aula 4: /saldo e /resumo (mês cheio, vazio, mes inválido)
+  test_export.py      # Aula 6: CSV (colunas, BOM, filtros, 422, injeção de fórmula)
+  test_dashboard.py   # Aula 6: GET / serve o HTML que consome /saldo e /resumo
+  test_config.py      # Aula 6: `python -m app` lê HOST/PORT do ambiente
 specs/           # specs de cada aula (fonte de verdade dos requisitos)
 docs/            # roteiro de prompts
 .claude/commands # slash commands do projeto (/implementar-spec)
@@ -170,6 +194,21 @@ docs/            # roteiro de prompts
   - `FiltrosTransacao` usa `extra="forbid"`: parâmetro com nome errado é 422, não filtro ignorado.
   - `?categoria=` recebe strip como os nomes gravados (`" transporte "` = `transporte`; só espaços → 422).
   - Mensagens de `_MENSAGENS` podem usar o `ctx` do erro Pydantic (ex.: `{le}`).
+- **(Aula 6) `GET /export.csv`:** mesmos filtros (`FiltrosTransacao`) e mesma ordem de `GET /transacoes`;
+  filtro inválido → 422 JSON. Formato **RFC 4180** via `csv` da stdlib: vírgula, `\r\n`, ponto decimal,
+  **UTF-8 com BOM** (o Excel mostra acentos; no Excel pt-BR use "Dados > De texto/CSV" para separar colunas).
+  Colunas `id,data,descricao,valor,tipo,categoria_id,categoria` — `valor` sempre com 2 casas (`50.50`),
+  `categoria` é o nome (vazio sem categoria). `Content-Disposition: attachment; filename="extrato.csv"`.
+  **Anti-injeção de fórmula:** `descricao`/`categoria` iniciadas por `= + - @ \t \r` ganham `'` na frente
+  só no CSV (a API JSON devolve o texto original).
+- **(Aula 6) Dashboard em `GET /`** (fora do OpenAPI): `app/static/dashboard.html`, HTML/CSS/JS inline sem build.
+  Saldo atual via `/saldo`; gastos do mês por categoria via `/resumo?mes=` (seletor de mês, padrão = mês atual,
+  `null` → "Sem categoria"); link para o CSV do mês. **Chart.js 4.4.1 fixo** por jsDelivr com hash SRI — ao
+  trocar a versão, recalcular o `integrity`. Dados da API entram no DOM só por `textContent` (nunca `innerHTML`).
+- **(Aula 6) Deploy configurado por ambiente:** `python -m app` lê `HOST`/`PORT`; `GASTOS_DB_PATH` aponta o
+  SQLite. A imagem Docker (`python:3.12-slim`, usuário sem root) define `HOST=0.0.0.0` e grava em `/data`, que
+  **deve ser um volume persistente** — sem ele, os dados somem a cada novo container/deploy. Nenhuma credencial
+  no código (o app não usa segredos).
 - **(Aula 5) Testes:** pytest + `TestClient` (o starlette 1.x exige o pacote `httpx2`). Cada teste recebe a
   fixture `client`, que faz `monkeypatch` de `app.database.DB_PATH` para um arquivo em `tmp_path` (banco novo e
   vazio por teste); `conftest.py` também define `GASTOS_DB_PATH` temporário antes de importar o app.

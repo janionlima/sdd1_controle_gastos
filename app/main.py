@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.database import init_db
-from app.routes import categorias, resumo, transacoes
+from app.routes import categorias, dashboard, export, resumo, transacoes
 
 
 @asynccontextmanager
@@ -21,6 +21,8 @@ app = FastAPI(title="Controle de Gastos Pessoais", lifespan=lifespan)
 app.include_router(transacoes.router)
 app.include_router(categorias.router)
 app.include_router(resumo.router)
+app.include_router(export.router)
+app.include_router(dashboard.router)
 
 # Tradução dos tipos de erro do Pydantic para mensagens do projeto.
 _MENSAGENS = {

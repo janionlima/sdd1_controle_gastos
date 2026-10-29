@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Controle de Gastos</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
+          integrity="sha384-9nhczxUqK87bcKHh20fSQcTGD4qq5GhayNYSYWqwBkINBhOfQLg/P5HG5lF1urn4"
+          crossorigin="anonymous"></script>
+  <style>
+    :root {
+      --bg: #f6f7f9; --card: #ffffff; --texto: #1f2328; --suave: #656d76; --borda: #d8dee4;
+      --entrada: #1a7f37; --saida: #cf222e; --barra: #3b6fd8;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0d1117; --card: #161b22; --texto: #e6edf3; --suave: #9198a1; --borda: #30363d;
+        --entrada: #3fb950; --saida: #f85149; --barra: #6d9bf1;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 24px 16px; background: var(--bg); color: var(--texto);
+      font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    main { max-width: 880px; margin: 0 auto; }
+    h1 { font-size: 1.5rem; margin: 0 0 4px; }
+    h2 { font-size: 1.1rem; margin: 0; }
+    .sub { color: var(--suave); margin: 0 0 24px; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 24px; }
+    .card, section { background: var(--card); border: 1px solid var(--borda); border-radius: 10px; padding: 16px; }
+    .card .rotulo { color: var(--suave); font-size: .85rem; }
+    .card .valor { font-size: 1.5rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .positivo { color: var(--entrada); }
+    .negativo { color: var(--saida); }
+    .cabecalho { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    .controles { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+    input[type="month"] {
+      font: inherit; padding: 4px 8px; border: 1px solid var(--borda); border-radius: 6px;
+      background: var(--card); color: var(--texto);
+    }
+    a { color: var(--barra); }
+    .totais-mes { color: var(--suave); margin: 0 0 12px; font-variant-numeric: tabular-nums; }
+    .grafico { position: relative; height: 320px; }
+    .vazio, .erro { padding: 32px 0; text-align: center; color: var(--suave); }
+    .erro { color: var(--saida); }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Controle de Gastos</h1>
+  <p class="sub">Saldo atual e gastos do mês por categoria</p>
+
+  <div class="cards" aria-label="Saldo atual (todas as transações)">
+    <div class="card"><div class="rotulo">Entradas</div><div class="valor positivo" id="entradas">—</div></div>
+    <div class="card"><div class="rotulo">Saídas</div><div class="valor negativo" id="saidas">—</div></div>
+    <div class="card"><div class="rotulo">Saldo atual</div><div class="valor" id="saldo">—</div></div>
+  </div>
+  <p class="erro" id="erro-saldo" hidden></p>
+
+  <section>
+    <div class="cabecalho">
+      <h2>Gastos por categoria</h2>
+      <div class="controles">
+        <label>Mês <input type="month" id="mes"></label>
+        <a id="baixar-csv" href="/export.csv">Baixar CSV do mês</a>
+      </div>
+    </div>
+    <p class="totais-mes" id="totais-mes"></p>
+    <div class="grafico" id="area-grafico"><canvas id="grafico" aria-label="Gráfico de gastos por categoria" role="img"></canvas></div>
+    <p class="vazio" id="vazio" hidden>Nenhum gasto neste mês.</p>
+    <p class="erro" id="erro-resumo" hidden></p>
+  </section>
+</main>
+
+<script>
+  "use strict";
+  const brl = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+  const $ = (id) => document.getElementById(id);
+  let grafico = null;
+
+  async function buscar(url) {
+    const r = await fetch(url);
+    const corpo = await r.json();
+    if (!r.ok) throw new Error(corpo.erro || `Erro ${r.status}`);
+    return corpo;
+  }
+
+  function mostrarErro(id, err) {
+    $(id).textContent = "Não foi possível carregar: " + err.message;
+    $(id).hidden = false;
+  }
+
+  async function carregarSaldo() {
+    try {
+      const s = await buscar("/saldo");
+      $("entradas").textContent = brl.format(s.entradas);
+      $("saidas").textContent = brl.format(s.saidas);
+      $("saldo").textContent = brl.format(s.saldo);
+      $("saldo").className = "valor " + (s.saldo < 0 ? "negativo" : "positivo");
+    } catch (err) {
+      mostrarErro("erro-saldo", err);
+    }
+  }
+
+  function ultimoDia(mes) {
+    const [ano, m] = mes.split("-").map(Number);
+    return `${mes}-${String(new Date(ano, m, 0).getDate()).padStart(2, "0")}`;
+  }
+
+  async function carregarResumo(mes) {
+    $("erro-resumo").hidden = true;
+    $("baixar-csv").href = `/export.csv?data_inicio=${mes}-01&data_fim=${ultimoDia(mes)}`;
+    try {
+      const r = await buscar(`/resumo?mes=${encodeURIComponent(mes)}`);
+      $("totais-mes").textContent =
+        `Entradas ${brl.format(r.entradas)} · Saídas ${brl.format(r.saidas)} · Saldo do mês ${brl.format(r.saldo)}`;
+      const vazio = r.por_categoria.length === 0;
+      $("vazio").hidden = !vazio;
+      $("area-grafico").hidden = vazio;
+      desenhar(r.por_categoria);
+    } catch (err) {
+      $("totais-mes").textContent = "";
+      $("area-grafico").hidden = true;
+      $("vazio").hidden = true;
+      mostrarErro("erro-resumo", err);
+    }
+  }
+
+  function desenhar(porCategoria) {
+    const cor = getComputedStyle(document.documentElement);
+    const texto = cor.getPropertyValue("--suave").trim();
+    const borda = cor.getPropertyValue("--borda").trim();
+    const dados = {
+      labels: porCategoria.map((c) => c.categoria ?? "Sem categoria"),
+      datasets: [{
+        label: "Gastos",
+        data: porCategoria.map((c) => c.total),
+        backgroundColor: cor.getPropertyValue("--barra").trim(),
+        borderRadius: 4,
+      }],
+    };
+    if (grafico) {
+      grafico.data = dados;
+      grafico.update();
+      return;
+    }
+    grafico = new Chart($("grafico"), {
+      type: "bar",
+      data: dados,
+      options: {
+        indexAxis: "y",
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: (ctx) => brl.format(ctx.parsed.x) } },
+        },
+        scales: {
+          x: { ticks: { color: texto, callback: (v) => brl.format(v) }, grid: { color: borda } },
+          y: { ticks: { color: texto }, grid: { display: false } },
+        },
+      },
+    });
+  }
+
+  const hoje = new Date();
+  const mesAtual = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`;
+  $("mes").value = mesAtual;
+  $("mes").addEventListener("change", (e) => { if (e.target.value) carregarResumo(e.target.value); });
+
+  if (typeof Chart === "undefined") {
+    mostrarErro("erro-resumo", new Error("biblioteca de gráficos (Chart.js) não carregou"));
+  }
+  carregarSaldo();
+  if (typeof Chart !== "undefined") carregarResumo(mesAtual);
+</script>
+</body>
+</html>
