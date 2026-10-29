@@ -17,6 +17,15 @@ def test_dashboard_tem_grafico_e_consome_endpoints(client):
     assert "/export.csv" in html
 
 
+def test_dashboard_tem_formulario_de_nova_transacao(client):
+    html = client.get("/").text
+    assert 'id="form-transacao"' in html
+    for campo in ('name="data"', 'name="descricao"', 'name="valor"', 'name="tipo"', 'name="categoria_id"'):
+        assert campo in html
+    assert 'fetch("/transacoes"' in html and 'method: "POST"' in html
+    assert 'buscar("/categorias")' in html  # opções de categoria vêm da API
+
+
 def test_dashboard_nao_usa_innerhtml_com_dados_da_api(client):
     assert "innerHTML" not in client.get("/").text
 

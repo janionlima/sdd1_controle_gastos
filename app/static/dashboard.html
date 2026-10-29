@@ -44,6 +44,20 @@
     .grafico { position: relative; height: 320px; }
     .vazio, .erro { padding: 32px 0; text-align: center; color: var(--suave); }
     .erro { color: var(--saida); }
+    section + section { margin-top: 24px; }
+    form.nova { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; align-items: end; margin-top: 12px; }
+    form.nova label { display: flex; flex-direction: column; gap: 4px; color: var(--suave); font-size: .85rem; }
+    form.nova .largo { grid-column: span 2; }
+    form.nova input, form.nova select, form.nova button {
+      font: inherit; padding: 6px 8px; border: 1px solid var(--borda); border-radius: 6px;
+      background: var(--card); color: var(--texto); min-width: 0;
+    }
+    form.nova button { background: var(--barra); border-color: var(--barra); color: #fff; font-weight: 600; cursor: pointer; }
+    form.nova button:disabled { opacity: .6; cursor: progress; }
+    .mensagem { margin: 12px 0 0; min-height: 1.5em; }
+    .mensagem.ok { color: var(--entrada); }
+    .mensagem.falha { color: var(--saida); }
+    @media (max-width: 480px) { form.nova .largo { grid-column: auto; } }
     [hidden] { display: none !important; }
   </style>
 </head>
@@ -58,6 +72,28 @@
     <div class="card"><div class="rotulo">Saldo atual</div><div class="valor" id="saldo">—</div></div>
   </div>
   <p class="erro" id="erro-saldo" hidden></p>
+
+  <section>
+    <h2>Nova transação</h2>
+    <form class="nova" id="form-transacao" novalidate>
+      <label>Data <input type="date" name="data" id="f-data" required></label>
+      <label class="largo">Descrição <input type="text" name="descricao" id="f-descricao" required maxlength="200" placeholder="Ex.: Mercado"></label>
+      <label>Valor (R$) <input type="number" name="valor" id="f-valor" required min="0.01" step="0.01" inputmode="decimal" placeholder="0,00"></label>
+      <label>Tipo
+        <select name="tipo" id="f-tipo">
+          <option value="saida">Saída</option>
+          <option value="entrada">Entrada</option>
+        </select>
+      </label>
+      <label>Categoria
+        <select name="categoria_id" id="f-categoria">
+          <option value="">Sem categoria</option>
+        </select>
+      </label>
+      <button type="submit" id="f-salvar">Adicionar</button>
+    </form>
+    <p class="mensagem" id="f-mensagem" role="status" aria-live="polite"></p>
+  </section>
 
   <section>
     <div class="cabecalho">
@@ -164,8 +200,67 @@
     });
   }
 
+  // ---- Nova transação: POST /transacoes (mesmas validações da API; erros 422 aparecem como vieram) ----
+  async function carregarCategorias() {
+    try {
+      const categorias = await buscar("/categorias");
+      const select = $("f-categoria");
+      for (const c of categorias) {
+        const opcao = document.createElement("option");
+        opcao.value = String(c.id);
+        opcao.textContent = c.nome;
+        select.appendChild(opcao);
+      }
+    } catch (err) {
+      avisar("Não foi possível carregar as categorias: " + err.message, false);
+    }
+  }
+
+  function avisar(texto, ok) {
+    $("f-mensagem").textContent = texto;
+    $("f-mensagem").className = "mensagem " + (ok ? "ok" : "falha");
+  }
+
+  async function adicionarTransacao(evento) {
+    evento.preventDefault();
+    const valor = $("f-valor").value;
+    const corpo = {
+      data: $("f-data").value,
+      descricao: $("f-descricao").value,
+      // input vazio/ inválido vai como texto para a API responder com a mensagem dela
+      valor: valor === "" || Number.isNaN(Number(valor)) ? valor : Number(valor),
+      tipo: $("f-tipo").value,
+      categoria_id: $("f-categoria").value === "" ? null : Number($("f-categoria").value),
+    };
+    $("f-salvar").disabled = true;
+    try {
+      const r = await fetch("/transacoes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(corpo),
+      });
+      const resposta = await r.json();
+      if (!r.ok) throw new Error(resposta.erro || `Erro ${r.status}`);
+      avisar(`Transação adicionada: ${resposta.descricao} (${brl.format(resposta.valor)})`, true);
+      $("f-descricao").value = "";
+      $("f-valor").value = "";
+      $("f-descricao").focus();
+      // Mostra o mês da transação recém-criada e atualiza o saldo.
+      const mesDaTransacao = resposta.data.slice(0, 7);
+      $("mes").value = mesDaTransacao;
+      await Promise.all([carregarSaldo(), typeof Chart !== "undefined" ? carregarResumo(mesDaTransacao) : null]);
+    } catch (err) {
+      avisar("Não foi possível adicionar: " + err.message, false);
+    } finally {
+      $("f-salvar").disabled = false;
+    }
+  }
+
   const hoje = new Date();
   const mesAtual = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`;
+  $("f-data").value = `${mesAtual}-${String(hoje.getDate()).padStart(2, "0")}`;
+  $("form-transacao").addEventListener("submit", adicionarTransacao);
+  carregarCategorias();
   $("mes").value = mesAtual;
   $("mes").addEventListener("change", (e) => { if (e.target.value) carregarResumo(e.target.value); });
 

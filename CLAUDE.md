@@ -235,6 +235,12 @@ docs/            # roteiro de prompts
   Saldo atual via `/saldo`; gastos do mês por categoria via `/resumo?mes=` (seletor de mês, padrão = mês atual,
   `null` → "Sem categoria"); link para o CSV do mês. **Chart.js 4.4.1 fixo** por jsDelivr com hash SRI — ao
   trocar a versão, recalcular o `integrity`. Dados da API entram no DOM só por `textContent` (nunca `innerHTML`).
+- **(Extensão pós-Aula 6, pedida fora das specs) Formulário "Nova transação" no dashboard:** campos data
+  (padrão = hoje), descrição, valor, tipo e categoria (opções de `GET /categorias`, "Sem categoria" = `null`);
+  envia `POST /transacoes`. **Sem validação própria no navegador** (`novalidate`): a API é a fonte única das
+  regras e a mensagem `erro` do 422 é exibida como veio. Após salvar: limpa descrição/valor, recarrega `/saldo`
+  e muda o seletor para o mês da transação criada (recarregando `/resumo`). Editar/excluir/criar categoria pelo
+  dashboard continuam fora (só pela API / `/docs`).
 - **(Aula 6) Deploy configurado por ambiente:** `python -m app` lê `HOST`/`PORT`; `GASTOS_DB_PATH` aponta o
   SQLite. A imagem Docker (`python:3.12-slim`, usuário sem root) define `HOST=0.0.0.0` e grava em `/data`, que
   **deve ser um volume persistente** — sem ele, os dados somem a cada novo container/deploy. Nenhuma credencial
