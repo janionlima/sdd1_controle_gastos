@@ -169,3 +169,49 @@ def listar_categorias() -> list[dict]:
         return [dict(r) for r in conn.execute("SELECT id, nome FROM categoria ORDER BY nome").fetchall()]
     finally:
         conn.close()
+
+
+# Agregações: somadas em centavos (inteiros) no SQL e convertidas para reais só no fim.
+_SQL_TOTAIS = """
+SELECT COALESCE(SUM(CASE WHEN tipo = 'entrada' THEN valor_centavos END), 0) AS entradas,
+       COALESCE(SUM(CASE WHEN tipo = 'saida' THEN valor_centavos END), 0) AS saidas
+FROM transacao
+"""
+
+
+def _totais(conn: sqlite3.Connection, where: str = "", params: tuple = ()) -> dict:
+    row = conn.execute(_SQL_TOTAIS + where, params).fetchone()
+    return {
+        "entradas": row["entradas"] / 100,
+        "saidas": row["saidas"] / 100,
+        "saldo": (row["entradas"] - row["saidas"]) / 100,
+    }
+
+
+def calcular_saldo() -> dict:
+    conn = get_connection()
+    try:
+        return _totais(conn)
+    finally:
+        conn.close()
+
+
+def calcular_resumo(mes: str) -> dict:
+    """Totais do mês (YYYY-MM) e gastos (saídas) por categoria; sem categoria → `categoria: None`."""
+    conn = get_connection()
+    try:
+        totais = _totais(conn, "WHERE substr(data, 1, 7) = ?", (mes,))
+        rows = conn.execute(
+            """
+            SELECT c.nome AS categoria, SUM(t.valor_centavos) AS total
+            FROM transacao t LEFT JOIN categoria c ON c.id = t.categoria_id
+            WHERE t.tipo = 'saida' AND substr(t.data, 1, 7) = ?
+            GROUP BY t.categoria_id
+            ORDER BY total DESC, categoria
+            """,
+            (mes,),
+        ).fetchall()
+        por_categoria = [{"categoria": r["categoria"], "total": r["total"] / 100} for r in rows]
+        return {"mes": mes, **totais, "por_categoria": por_categoria}
+    finally:
+        conn.close()

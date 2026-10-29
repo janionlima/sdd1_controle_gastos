@@ -4,12 +4,22 @@ import re
 from datetime import date
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, StringConstraints, field_validator
+from pydantic import AfterValidator, BaseModel, Field, StringConstraints, field_validator
 
 _DATA_ISO = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 MSG_DATA_INVALIDA = "deve ser uma data válida no formato YYYY-MM-DD"
+_MES = re.compile(r"\d{4}-(0[1-9]|1[0-2])")
 
 TextoNaoVazio = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
+def _validar_mes(v: str) -> str:
+    if not _MES.fullmatch(v):
+        raise ValueError("deve ser um mês válido no formato YYYY-MM")
+    return v
+
+
+Mes = Annotated[str, AfterValidator(_validar_mes)]
 
 
 class CategoriaCreate(BaseModel):
@@ -49,3 +59,19 @@ class TransacaoCreate(BaseModel):
 
 class Transacao(TransacaoCreate):
     id: int
+
+
+class Saldo(BaseModel):
+    entradas: float
+    saidas: float
+    saldo: float
+
+
+class TotalCategoria(BaseModel):
+    categoria: str | None  # None = saídas sem categoria
+    total: float
+
+
+class Resumo(Saldo):
+    mes: str
+    por_categoria: list[TotalCategoria]

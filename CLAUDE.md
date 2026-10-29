@@ -71,6 +71,7 @@ docs/            # roteiro de prompts
   | `nome` de categoria vazio / só dígitos | `nome: não pode ser vazia` / `nome: não pode conter apenas dígitos` |
   | `nome` de categoria repetido | `nome: categoria '<nome>' já existe` |
   | `?categoria=` vazio | `categoria: não pode ser vazia` |
+  | `?mes=` fora de `YYYY-MM` (mês 01–12) | `mes: deve ser um mês válido no formato YYYY-MM` |
   | campo ausente | `<campo>: campo obrigatório` |
   | JSON inválido | `corpo da requisição não é um JSON válido` |
   | outros | `<campo>: <mensagem original do Pydantic>` |
@@ -90,6 +91,16 @@ docs/            # roteiro de prompts
   No `PUT`, a checagem de `categoria_id` inexistente (422) vem antes da de transação inexistente (404).
 - **(Aula 3) Migração de schema:** `init_db()` adiciona `categoria_id` com `ALTER TABLE` em bancos antigos
   (as transações existentes ficam com `null`). `PRAGMA foreign_keys = ON` em toda conexão (`get_connection`).
+- **(Aula 4) Agregações em SQL sobre centavos:** `SUM(valor_centavos)` (inteiro) e conversão `/ 100` só no fim,
+  em `database.py` — sem erro de ponto flutuante; vazio vira 0 via `COALESCE`. `saidas` é positivo e
+  `saldo = entradas - saidas` pode ser negativo.
+- **(Aula 4) `por_categoria` do `/resumo` soma só saídas** ("gastos"); saídas sem categoria aparecem como
+  `{"categoria": null, "total": ...}`, então a soma de `por_categoria` é igual a `saidas`.
+  Ordenação: `total DESC`, depois nome. Mês sem saídas → `[]`.
+- **(Aula 4) `mes` é obrigatório e estrito** (`YYYY-MM`, mês 01–12; tipo `Mes` em `models.py`); o mês é
+  filtrado com `substr(data, 1, 7) = ?`.
+- **Query params com tipo validado usam `Annotated[Tipo, Query(...)]`**, nunca `param: Tipo = Query(...)`:
+  na segunda forma o FastAPI descarta os validadores (`AfterValidator`) do tipo e aceita qualquer valor.
 
 ## Fluxo de trabalho
 - Implementar uma spec por vez com `/implementar-spec specs/<arquivo>.md`: plano → aprovação → implementação → verificação dos critérios de aceite → commit.
