@@ -20,20 +20,50 @@ python -m app                    # host/porta vindos do ambiente (HOST, PORT)
 Dashboard: http://127.0.0.1:8000/ · Documentação interativa: http://127.0.0.1:8000/docs ·
 Extrato: http://127.0.0.1:8000/export.csv
 
-Deploy (Docker; também há `Procfile` para plataformas sem Docker):
-```bash
-docker build -t controle-gastos .
-docker run -d -p 8000:8000 -v gastos-dados:/data controle-gastos            # porta padrão 8000
-docker run -d -e PORT=9000 -p 9000:9000 -v gastos-dados:/data controle-gastos  # porta via env
-```
+Para publicar fora da máquina local, ver **Deploy** abaixo.
+
+## Deploy
+Toda configuração vem de **variáveis de ambiente** — nada a editar no código. O app não usa
+credenciais/segredos; `.env.example` documenta as variáveis e `.env` está no `.gitignore`.
 
 | Variável | Padrão | Uso |
 |---|---|---|
-| `HOST` | `127.0.0.1` (Docker: `0.0.0.0`) | interface de rede; `0.0.0.0` para aceitar conexões externas |
-| `PORT` | `8000` | porta HTTP (plataformas PaaS definem sozinhas) |
-| `GASTOS_DB_PATH` | `./gastos.db` (Docker: `/data/gastos.db`) | arquivo SQLite; em deploy, num volume persistente |
+| `HOST` | `127.0.0.1` (imagem Docker: `0.0.0.0`) | interface de rede; `0.0.0.0` para aceitar conexões externas |
+| `PORT` | `8000` | porta HTTP (Render/Railway/Heroku definem sozinhas) |
+| `GASTOS_DB_PATH` | `./gastos.db` (imagem Docker: `/data/gastos.db`) | arquivo SQLite — **sempre num disco/volume persistente** |
 
-Exemplo em `.env.example`. O app não usa credenciais/segredos; `.env` está no `.gitignore`.
+> ⚠️ SQLite é um arquivo: sem volume persistente, os dados **somem a cada deploy/novo container**.
+> Rode **uma única instância** (sem escalar horizontalmente) — várias instâncias não compartilham o arquivo.
+
+### Opção A — Docker em qualquer servidor/VM
+```bash
+docker build -t controle-gastos .
+docker volume create gastos-dados
+docker run -d --name controle-gastos --restart unless-stopped \
+  -e PORT=8000 -p 8000:8000 -v gastos-dados:/data controle-gastos
+docker logs controle-gastos        # deve mostrar: Uvicorn running on http://0.0.0.0:8000
+```
+Trocar a porta: `-e PORT=9000 -p 9000:9000`. Atualizar versão: `docker build` de novo,
+`docker rm -f controle-gastos` e o mesmo `docker run` (o volume mantém os dados).
+
+### Opção B — PaaS (Render, Railway, Fly.io…)
+1. Subir o repositório para o GitHub e criar um serviço web apontando para ele.
+2. Build: **Dockerfile** (detectado automaticamente) — ou, sem Docker, ambiente Python com
+   build `pip install -r requirements.txt` e start `python -m app` (já está no `Procfile`).
+3. Variáveis: a plataforma define `PORT`. Sem Docker, definir `HOST=0.0.0.0`.
+4. Criar um **disco persistente** (Render: *Disks*; Railway: *Volumes*; Fly: `fly volumes create`)
+   montado em `/data` e definir `GASTOS_DB_PATH=/data/gastos.db` (já é o padrão da imagem Docker).
+5. Instâncias: 1. Health check: `GET /saldo` (200 com JSON).
+
+### Conferir depois do deploy
+```bash
+curl https://<seu-app>/saldo          # {"entradas": ..., "saidas": ..., "saldo": ...}
+curl -OJ https://<seu-app>/export.csv # baixa extrato.csv
+```
+e abrir `https://<seu-app>/` (dashboard) e `/docs`. **Atenção:** a API não tem autenticação (fora de
+escopo); quem tiver a URL lê e altera os dados — em produção, restrinja o acesso (rede privada, proxy
+com senha da plataforma) até existir autenticação. Backup: copiar o arquivo de `GASTOS_DB_PATH`
+(ex.: `docker cp controle-gastos:/data/gastos.db ./backup.db`).
 
 Testes (dependências de desenvolvimento ficam em `requirements-dev.txt`):
 ```bash
