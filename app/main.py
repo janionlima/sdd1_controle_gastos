@@ -33,6 +33,8 @@ _MENSAGENS = {
     "int_parsing": "deve ser um número inteiro",
     "int_type": "deve ser um número inteiro",
     "missing": "campo obrigatório",
+    "less_than_equal": "deve ser no máximo {le}",
+    "extra_forbidden": "parâmetro desconhecido",
 }
 
 
@@ -44,8 +46,12 @@ def _mensagem_validacao(erro: dict) -> str:
         return "corpo da requisição é obrigatório"
     if erro["type"] == "value_error":
         msg = str(erro["ctx"]["error"])
+    elif erro["type"] in _MENSAGENS:
+        # Mensagens do projeto podem usar o contexto do erro (ex.: {le} = limite máximo).
+        ctx = {k: int(v) if isinstance(v, float) and v.is_integer() else v for k, v in erro.get("ctx", {}).items()}
+        msg = _MENSAGENS[erro["type"]].format(**ctx)
     else:
-        msg = _MENSAGENS.get(erro["type"], erro["msg"])
+        msg = erro["msg"]
     return f"{campo}: {msg}" if campo else msg
 
 

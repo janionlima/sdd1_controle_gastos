@@ -40,6 +40,15 @@ def test_todos_os_filtros_combinados(client, massa):
     assert ids(r) == esperados(massa, "mercado_ago")
 
 
+def test_todos_os_filtros_combinados_com_categoria_por_id(client, massa):
+    r = client.get(
+        "/transacoes",
+        params={"categoria": massa["_ali"]["id"], "data_inicio": "2026-08-01", "data_fim": "2026-08-31",
+                "valor_min": 50, "valor_max": 100},
+    )
+    assert ids(r) == esperados(massa, "mercado_ago")
+
+
 def test_combinacao_parcial(client, massa):
     r = client.get("/transacoes", params={"data_inicio": "2026-08-01", "data_fim": "2026-08-31", "valor_min": 80})
     assert ids(r) == esperados(massa, "mercado_ago", "jantar_ago", "uber_ago", "sem_cat_ago")
@@ -76,7 +85,30 @@ def test_categoria_por_id(client, massa):
     assert ids(r) == esperados(massa, "uber_ago")
 
 
-@pytest.mark.parametrize("categoria", ["lazer", "999", "alimentação"])
+def test_categoria_ignora_espacos_nas_pontas(client, massa):
+    r = client.get("/transacoes", params={"categoria": "  transporte  "})
+    assert ids(r) == esperados(massa, "uber_ago")
+
+
+@pytest.mark.parametrize(
+    "params,apelidos",
+    [
+        # Limites fora do centavo arredondam para DENTRO da faixa (inclusiva).
+        ({"valor_max": 12.499}, []),                 # 12.50 > 12.499
+        ({"valor_min": 12.501, "valor_max": 79.999}, []),
+        ({"valor_min": 12.491, "valor_max": 12.509}, ["padaria_ago"]),
+        ({"valor_min": 199.999}, ["jantar_ago"]),
+        ({"valor_min": 0.1 + 0.2, "valor_max": 12.5}, ["padaria_ago"]),  # 0.30000000000000004
+    ],
+    ids=["max-abaixo", "faixa-sem-centavo", "faixa-em-volta", "min-quase", "ruido-float"],
+)
+def test_limites_de_valor_fora_do_centavo(client, massa, params, apelidos):
+    r = client.get("/transacoes", params=params)
+    assert r.status_code == 200
+    assert ids(r) == esperados(massa, *apelidos)
+
+
+@pytest.mark.parametrize("categoria", ["lazer", "999", "alimentação", "99999999999999999999", "²", "١"])
 def test_categoria_inexistente_retorna_lista_vazia(client, massa, categoria):
     r = client.get("/transacoes", params={"categoria": categoria})
     assert r.status_code == 200
@@ -101,9 +133,14 @@ def test_filtros_sem_resultado_retornam_lista_vazia(client, massa):
         ({"valor_min": 0}, "valor_min: deve ser maior que 0"),
         ({"valor_max": -5}, "valor_max: deve ser maior que 0"),
         ({"categoria": ""}, "categoria: não pode ser vazia"),
+        ({"categoria": "   "}, "categoria: não pode ser vazia"),
+        ({"valor_min": 1e300}, "valor_min: deve ser no máximo 1000000000"),
+        ({"valor_max": 1e17}, "valor_max: deve ser no máximo 1000000000"),
+        ({"data_inicial": "2026-08-01"}, "data_inicial: parâmetro desconhecido"),
     ],
     ids=["periodo-invertido", "faixa-invertida", "data_inicio-inexistente", "data_fim-malformada",
-         "valor_min-texto", "valor_max-nan", "valor_min-zero", "valor_max-negativo", "categoria-vazia"],
+         "valor_min-texto", "valor_max-nan", "valor_min-zero", "valor_max-negativo", "categoria-vazia",
+         "categoria-so-espacos", "valor_min-enorme", "valor_max-enorme", "parametro-desconhecido"],
 )
 def test_filtro_invalido_retorna_422(client, params, mensagem):
     r = client.get("/transacoes", params=params)

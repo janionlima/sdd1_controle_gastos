@@ -91,6 +91,9 @@ docs/            # roteiro de prompts
   | `?mes=` fora de `YYYY-MM` (mês 01–12) | `mes: deve ser um mês válido no formato YYYY-MM` |
   | `data_inicio` > `data_fim` | `data_inicio: não pode ser posterior a data_fim` |
   | `valor_min` > `valor_max` | `valor_min: não pode ser maior que valor_max` |
+  | `valor` que arredonda para 0 centavos (ex.: 0.001) | `valor: deve ser no mínimo 0.01` |
+  | `valor`, `valor_min`, `valor_max` > R$ 1 bilhão | `<campo>: deve ser no máximo 1000000000` |
+  | query param desconhecido (ex.: `data_inicial`) | `<param>: parâmetro desconhecido` |
   | campo ausente | `<campo>: campo obrigatório` |
   | JSON inválido | `corpo da requisição não é um JSON válido` |
   | outros | `<campo>: <mensagem original do Pydantic>` |
@@ -155,6 +158,18 @@ docs/            # roteiro de prompts
     `"50"` é aceita — diferente do `valor` no corpo JSON, que é estrito.
   - Valor comparado em centavos (`valor_centavos >= ?` com `_para_centavos(...)`), mantendo a conversão só em `database.py`.
   - A query é montada em `listar_transacoes` juntando **apenas trechos fixos** com `AND`; todo valor vai por `?`.
+- **(Aula 5, revisão) Limites numéricos e robustez** — nenhuma entrada pode gerar 500:
+  - `valor` tem piso de **1 centavo** (validado após arredondar: 0.001 → 422, antes era gravado como 0 e
+    quebrava toda listagem) e teto `VALOR_MAX` = **R$ 1 bilhão** (`models.py`), o mesmo teto vale para
+    `valor_min`/`valor_max`. Mantém centavos e somas dentro do INTEGER de 64 bits do SQLite.
+  - Ids fora do int64 (path, `categoria_id`, `?categoria=`) não existem: 404 / 422 "não existe" / `[]`
+    (`_id_existe_no_sqlite` em `database.py`).
+  - "Só dígitos" significa **dígitos ASCII 0-9** (`so_digitos` em `models.py`); `²` ou `١` são texto (nome).
+  - Limites de valor fora do centavo arredondam **para dentro** da faixa: `valor_min` → teto, `valor_max` →
+    piso (ex.: `valor_max=9.996` não traz 10.00).
+  - `FiltrosTransacao` usa `extra="forbid"`: parâmetro com nome errado é 422, não filtro ignorado.
+  - `?categoria=` recebe strip como os nomes gravados (`" transporte "` = `transporte`; só espaços → 422).
+  - Mensagens de `_MENSAGENS` podem usar o `ctx` do erro Pydantic (ex.: `{le}`).
 - **(Aula 5) Testes:** pytest + `TestClient` (o starlette 1.x exige o pacote `httpx2`). Cada teste recebe a
   fixture `client`, que faz `monkeypatch` de `app.database.DB_PATH` para um arquivo em `tmp_path` (banco novo e
   vazio por teste); `conftest.py` também define `GASTOS_DB_PATH` temporário antes de importar o app.

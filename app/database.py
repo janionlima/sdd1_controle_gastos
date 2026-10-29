@@ -1,12 +1,11 @@
 """Acesso a dados: conexão SQLite e criação do schema."""
 
+import math
 import os
 import sqlite3
 from pathlib import Path
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from app.models import FiltrosTransacao
+from app.models import FiltrosTransacao, so_digitos
 
 DB_PATH = os.getenv(
     "GASTOS_DB_PATH",
@@ -68,6 +67,21 @@ def _para_centavos(valor: float) -> int:
     return round(valor * 100)
 
 
+def _centavos_teto(valor: float) -> int:
+    """Menor centavo >= valor (round(..., 6) descarta o ruído de ponto flutuante, ex.: 0.3*100)."""
+    return math.ceil(round(valor * 100, 6))
+
+
+def _centavos_piso(valor: float) -> int:
+    """Maior centavo <= valor."""
+    return math.floor(round(valor * 100, 6))
+
+
+def _id_existe_no_sqlite(id: int) -> bool:
+    """Ids fora do INTEGER de 64 bits não podem existir (e o sqlite3 levantaria OverflowError)."""
+    return -(2**63) <= id < 2**63
+
+
 def criar_transacao(data: str, descricao: str, valor: float, tipo: str, categoria_id: int | None) -> dict:
     conn = get_connection()
     try:
@@ -83,6 +97,8 @@ def criar_transacao(data: str, descricao: str, valor: float, tipo: str, categori
 
 
 def buscar_transacao(id: int) -> dict | None:
+    if not _id_existe_no_sqlite(id):
+        return None
     conn = get_connection()
     try:
         row = conn.execute("SELECT * FROM transacao WHERE id = ?", (id,)).fetchone()
@@ -95,6 +111,8 @@ def atualizar_transacao(
     id: int, data: str, descricao: str, valor: float, tipo: str, categoria_id: int | None
 ) -> dict | None:
     """Substitui todos os campos da transação; retorna None se o id não existir."""
+    if not _id_existe_no_sqlite(id):
+        return None
     conn = get_connection()
     try:
         cur = conn.execute(
@@ -113,6 +131,8 @@ def atualizar_transacao(
 
 def excluir_transacao(id: int) -> bool:
     """Remove a transação; retorna False se o id não existir."""
+    if not _id_existe_no_sqlite(id):
+        return False
     conn = get_connection()
     try:
         cur = conn.execute("DELETE FROM transacao WHERE id = ?", (id,))
@@ -122,17 +142,20 @@ def excluir_transacao(id: int) -> bool:
         conn.close()
 
 
-def listar_transacoes(filtros: "FiltrosTransacao | None" = None) -> list[dict]:
+def listar_transacoes(filtros: FiltrosTransacao | None = None) -> list[dict]:
     """Lista transações aplicando os filtros preenchidos (E lógico, limites inclusivos).
 
-    `categoria` só com dígitos é id, senão é nome (sem diferenciar maiúsculas). A query concatena
-    apenas trechos fixos; todo valor vindo do usuário vai por parâmetro vinculado (`?`).
+    `categoria` só com dígitos ASCII é id, senão é nome (sem diferenciar maiúsculas). Os limites de
+    valor arredondam para dentro da faixa (teto/piso em centavos). A query concatena apenas trechos
+    fixos; todo valor vindo do usuário vai por parâmetro vinculado (`?`).
     """
     condicoes: list[str] = []
     params: list = []
     if filtros is not None:
         if filtros.categoria is not None:
-            if filtros.categoria.isdigit():
+            if so_digitos(filtros.categoria):
+                if not _id_existe_no_sqlite(int(filtros.categoria)):
+                    return []  # id grande demais: nenhuma categoria pode tê-lo
                 condicoes.append("categoria_id = ?")
                 params.append(int(filtros.categoria))
             else:
@@ -146,10 +169,10 @@ def listar_transacoes(filtros: "FiltrosTransacao | None" = None) -> list[dict]:
             params.append(filtros.data_fim.isoformat())
         if filtros.valor_min is not None:
             condicoes.append("valor_centavos >= ?")
-            params.append(_para_centavos(filtros.valor_min))
+            params.append(_centavos_teto(filtros.valor_min))
         if filtros.valor_max is not None:
             condicoes.append("valor_centavos <= ?")
-            params.append(_para_centavos(filtros.valor_max))
+            params.append(_centavos_piso(filtros.valor_max))
 
     sql = "SELECT * FROM transacao"
     if condicoes:
@@ -178,6 +201,8 @@ def criar_categoria(nome: str) -> dict | None:
 
 
 def buscar_categoria(id: int) -> dict | None:
+    if not _id_existe_no_sqlite(id):
+        return None
     conn = get_connection()
     try:
         row = conn.execute("SELECT id, nome FROM categoria WHERE id = ?", (id,)).fetchone()

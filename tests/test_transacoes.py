@@ -26,9 +26,23 @@ def test_listar_ordena_por_data_desc_e_id_desc(client, criar_transacao):
     assert ids(client.get("/transacoes")) == [b["id"], c["id"], a["id"]]
 
 
-def test_valor_guarda_duas_casas(client):
-    r = client.post("/transacoes", json={**VALIDA, "valor": 0.1})
-    assert r.json()["valor"] == 0.1
+@pytest.mark.parametrize(
+    "enviado,gravado",
+    [(0.1, 0.1), (0.01, 0.01), (10.006, 10.01), (10.004, 10.0), (1_000_000_000, 1_000_000_000.0)],
+)
+def test_valor_guarda_duas_casas(client, enviado, gravado):
+    r = client.post("/transacoes", json={**VALIDA, "valor": enviado})
+    assert r.status_code == 201
+    assert r.json()["valor"] == gravado
+    assert client.get("/transacoes").status_code == 200
+
+
+def test_valor_subcentavo_nao_e_gravado(client):
+    """Regressão: 0.001 era gravado como 0 centavos e quebrava toda listagem seguinte (500)."""
+    assert client.post("/transacoes", json={**VALIDA, "valor": 0.001}).status_code == 422
+    r = client.get("/transacoes")
+    assert r.status_code == 200
+    assert r.json() == []
 
 
 def test_buscar_por_id(client, criar_transacao):
@@ -69,6 +83,15 @@ def test_id_inexistente_retorna_404(client, metodo, corpo):
     assert r.json() == {"erro": "Transação 999 não encontrada"}
 
 
+@pytest.mark.parametrize("metodo", ["get", "put", "delete"])
+@pytest.mark.parametrize("id_", ["99999999999999999999", "-99999999999999999999"])
+def test_id_fora_do_int64_retorna_404(client, metodo, id_):
+    kwargs = {"json": VALIDA} if metodo == "put" else {}
+    r = getattr(client, metodo)(f"/transacoes/{id_}", **kwargs)
+    assert r.status_code == 404
+    assert r.json() == {"erro": f"Transação {id_} não encontrada"}
+
+
 def test_id_nao_inteiro_retorna_422(client):
     r = client.get("/transacoes/abc")
     assert r.status_code == 422
@@ -81,6 +104,10 @@ INVALIDOS = [
     ({"valor": "abc"}, "valor: deve ser um número"),
     ({"valor": "50"}, "valor: deve ser um número"),
     ({"valor": True}, "valor: deve ser um número"),
+    ({"valor": 0.001}, "valor: deve ser no mínimo 0.01"),  # arredondaria para 0 centavos
+    ({"valor": 0.004}, "valor: deve ser no mínimo 0.01"),
+    ({"valor": 1_000_000_000.01}, "valor: deve ser no máximo 1000000000"),
+    ({"valor": 1e17}, "valor: deve ser no máximo 1000000000"),  # estouraria o INTEGER do SQLite
     ({"tipo": "despesa"}, "tipo: deve ser 'entrada' ou 'saida'"),
     ({"data": "2026-13-01"}, "data: deve ser uma data válida no formato YYYY-MM-DD"),
     ({"data": "2026-02-30"}, "data: deve ser uma data válida no formato YYYY-MM-DD"),

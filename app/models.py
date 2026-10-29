@@ -8,6 +8,7 @@ from pydantic import (
     AfterValidator,
     BaseModel,
     BeforeValidator,
+    ConfigDict,
     Field,
     StringConstraints,
     field_validator,
@@ -19,6 +20,14 @@ MSG_DATA_INVALIDA = "deve ser uma data válida no formato YYYY-MM-DD"
 _MES = re.compile(r"\d{4}-(0[1-9]|1[0-2])")
 
 TextoNaoVazio = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+# Teto de valores (R$ 1 bilhão): mantém centavos e somas bem dentro do INTEGER de 64 bits do SQLite.
+VALOR_MAX = 1_000_000_000
+
+
+def so_digitos(v: str) -> bool:
+    """Só dígitos ASCII 0-9 (`str.isdigit()` sozinho aceita '²', '١' etc.)."""
+    return v.isascii() and v.isdigit()
 
 
 def _validar_data_iso(v):
@@ -50,7 +59,7 @@ class CategoriaCreate(BaseModel):
     @classmethod
     def validar_nome(cls, v: str) -> str:
         """Nome só com dígitos seria confundido com id no filtro `?categoria=`."""
-        if v.isdigit():
+        if so_digitos(v):
             raise ValueError("não pode conter apenas dígitos")
         return v
 
@@ -62,9 +71,17 @@ class Categoria(CategoriaCreate):
 class TransacaoCreate(BaseModel):
     data: DataISO
     descricao: TextoNaoVazio
-    valor: float = Field(gt=0, allow_inf_nan=False, strict=True)
+    valor: float = Field(gt=0, le=VALOR_MAX, allow_inf_nan=False, strict=True)
     tipo: Literal["entrada", "saida"]
     categoria_id: int | None = Field(default=None, strict=True)
+
+    @field_validator("valor")
+    @classmethod
+    def validar_centavo(cls, v: float) -> float:
+        """Valor que arredonda para 0 centavos (ex.: 0.001) seria gravado como zero."""
+        if round(v * 100) < 1:
+            raise ValueError("deve ser no mínimo 0.01")
+        return v
 
 
 class Transacao(TransacaoCreate):
@@ -74,11 +91,14 @@ class Transacao(TransacaoCreate):
 class FiltrosTransacao(BaseModel):
     """Query params de `GET /transacoes`: todos opcionais, combinados por E; limites inclusivos."""
 
-    categoria: str | None = Field(default=None, min_length=1, description="Nome ou id da categoria")
+    # Parâmetro desconhecido (ex.: `data_inicial`) é erro, não filtro ignorado em silêncio.
+    model_config = ConfigDict(extra="forbid")
+
+    categoria: TextoNaoVazio | None = Field(default=None, description="Nome ou id da categoria")
     data_inicio: DataISO | None = None
     data_fim: DataISO | None = None
-    valor_min: float | None = Field(default=None, gt=0, allow_inf_nan=False)
-    valor_max: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+    valor_min: float | None = Field(default=None, gt=0, le=VALOR_MAX, allow_inf_nan=False)
+    valor_max: float | None = Field(default=None, gt=0, le=VALOR_MAX, allow_inf_nan=False)
 
     @model_validator(mode="after")
     def validar_faixas(self):

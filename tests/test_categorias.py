@@ -30,6 +30,12 @@ def test_nome_invalido_retorna_422(client, nome, mensagem):
     assert r.json() == {"erro": mensagem}
 
 
+@pytest.mark.parametrize("nome", ["²", "١", "2026a"])
+def test_nome_com_digito_nao_ascii_ou_misto_e_aceito(client, nome):
+    """Só dígitos ASCII 0-9 contam como id no filtro; '²' ou '١' são nomes válidos."""
+    assert client.post("/categorias", json={"nome": nome}).status_code == 201
+
+
 def test_transacao_com_categoria(client, criar_categoria, criar_transacao):
     ali = criar_categoria("alimentacao")
     tra = criar_categoria("transporte")
@@ -53,6 +59,7 @@ def test_categoria_e_opcional_e_put_sem_ela_remove(client, criar_categoria, cria
     "categoria_id,mensagem",
     [
         (999, "categoria_id: categoria 999 não existe"),
+        (99999999999999999999, "categoria_id: categoria 99999999999999999999 não existe"),
         ("1", "categoria_id: deve ser um número inteiro"),
         (True, "categoria_id: deve ser um número inteiro"),
     ],
