@@ -47,16 +47,57 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
     }
 
 
+def _para_centavos(valor: float) -> int:
+    return round(valor * 100)
+
+
 def criar_transacao(data: str, descricao: str, valor: float, tipo: str) -> dict:
     conn = get_connection()
     try:
         cur = conn.execute(
             "INSERT INTO transacao (data, descricao, valor_centavos, tipo) VALUES (?, ?, ?, ?)",
-            (data, descricao, round(valor * 100), tipo),
+            (data, descricao, _para_centavos(valor), tipo),
         )
         conn.commit()
         row = conn.execute("SELECT * FROM transacao WHERE id = ?", (cur.lastrowid,)).fetchone()
         return _row_to_dict(row)
+    finally:
+        conn.close()
+
+
+def buscar_transacao(id: int) -> dict | None:
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT * FROM transacao WHERE id = ?", (id,)).fetchone()
+        return _row_to_dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def atualizar_transacao(id: int, data: str, descricao: str, valor: float, tipo: str) -> dict | None:
+    """Substitui todos os campos da transação; retorna None se o id não existir."""
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            "UPDATE transacao SET data = ?, descricao = ?, valor_centavos = ?, tipo = ? WHERE id = ?",
+            (data, descricao, _para_centavos(valor), tipo, id),
+        )
+        conn.commit()
+        if cur.rowcount == 0:
+            return None
+        row = conn.execute("SELECT * FROM transacao WHERE id = ?", (id,)).fetchone()
+        return _row_to_dict(row)
+    finally:
+        conn.close()
+
+
+def excluir_transacao(id: int) -> bool:
+    """Remove a transação; retorna False se o id não existir."""
+    conn = get_connection()
+    try:
+        cur = conn.execute("DELETE FROM transacao WHERE id = ?", (id,))
+        conn.commit()
+        return cur.rowcount > 0
     finally:
         conn.close()
 

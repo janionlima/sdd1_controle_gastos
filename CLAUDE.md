@@ -49,6 +49,26 @@ docs/            # roteiro de prompts
 - **Valores em centavos no banco:** a coluna é `valor_centavos INTEGER`; a conversão reais ↔ centavos
   acontece só em `database.py` (`round(valor * 100)` / `centavos / 100`). Na API o campo é `valor` (número).
 - **Ordenação de `GET /transacoes`:** `ORDER BY data DESC, id DESC` (mesma data → a criada por último primeiro).
+- **`GET /transacoes/{id}`:** existe para permitir "buscar" uma transação (e confirmar 404 após exclusão).
+- **`PUT` é substituição completa:** mesmo schema e mesmas validações do `POST` (`TransacaoCreate`).
+- **Todo erro usa o corpo `{"erro": ...}`**, não só o 422: um handler de `HTTPException` em `app/main.py`
+  converte `detail` → `erro` mantendo o status (ex.: 404 `{"erro": "Transação 7 não encontrada"}`).
+- **Mensagens de validação em português**, formato `"<campo>: <mensagem>"` (só o primeiro erro).
+  Tradução por tipo de erro do Pydantic em `_MENSAGENS` (`app/main.py`):
+
+  | Situação | Mensagem |
+  |---|---|
+  | `valor` ≤ 0 | `valor: deve ser maior que 0` |
+  | `valor` não numérico | `valor: deve ser um número` |
+  | `tipo` inválido | `tipo: deve ser 'entrada' ou 'saida'` |
+  | `data` fora de `YYYY-MM-DD` ou inexistente | `data: deve ser uma data válida no formato YYYY-MM-DD` |
+  | `descricao` vazia/só espaços | `descricao: não pode ser vazia` |
+  | `id` da rota não inteiro | `id: deve ser um número inteiro` |
+  | campo ausente | `<campo>: campo obrigatório` |
+  | JSON inválido | `corpo da requisição não é um JSON válido` |
+  | outros | `<campo>: <mensagem original do Pydantic>` |
+- **`descricao` é gravada sem espaços nas pontas** (`strip_whitespace`); `data` só aceita string ISO estrita.
+- **`valor` é estrito** (`strict=True`): aceita só número JSON (int ou float); booleano e número em string são recusados.
 
 ## Fluxo de trabalho
 - Implementar uma spec por vez com `/implementar-spec specs/<arquivo>.md`: plano → aprovação → implementação → verificação dos critérios de aceite → commit.
