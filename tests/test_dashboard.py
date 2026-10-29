@@ -26,6 +26,13 @@ def test_dashboard_tem_formulario_de_nova_transacao(client):
     assert 'buscar("/categorias")' in html  # opções de categoria vêm da API
 
 
+def test_dashboard_permite_criar_categoria(client):
+    html = client.get("/").text
+    assert "+ Nova categoria…" in html
+    assert 'id="f-nova-categoria"' in html
+    assert 'fetch("/categorias"' in html  # POST da categoria nova antes da transação
+
+
 def test_dashboard_nao_usa_innerhtml_com_dados_da_api(client):
     assert "innerHTML" not in client.get("/").text
 

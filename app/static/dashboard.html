@@ -88,7 +88,11 @@
       <label>Categoria
         <select name="categoria_id" id="f-categoria">
           <option value="">Sem categoria</option>
+          <option value="__nova__">+ Nova categoria…</option>
         </select>
+      </label>
+      <label id="f-nova-wrap" hidden>Nome da nova categoria
+        <input type="text" id="f-nova-categoria" maxlength="100" placeholder="Ex.: lazer">
       </label>
       <button type="submit" id="f-salvar">Adicionar</button>
     </form>
@@ -201,19 +205,54 @@
   }
 
   // ---- Nova transação: POST /transacoes (mesmas validações da API; erros 422 aparecem como vieram) ----
+  const NOVA = "__nova__";
+
+  function adicionarOpcao(categoria) {
+    const opcao = document.createElement("option");
+    opcao.value = String(categoria.id);
+    opcao.textContent = categoria.nome;
+    $("f-categoria").insertBefore(opcao, $("f-categoria").querySelector(`option[value="${NOVA}"]`));
+  }
+
   async function carregarCategorias() {
     try {
-      const categorias = await buscar("/categorias");
-      const select = $("f-categoria");
-      for (const c of categorias) {
-        const opcao = document.createElement("option");
-        opcao.value = String(c.id);
-        opcao.textContent = c.nome;
-        select.appendChild(opcao);
-      }
+      for (const c of await buscar("/categorias")) adicionarOpcao(c);
     } catch (err) {
       avisar("Não foi possível carregar as categorias: " + err.message, false);
     }
+  }
+
+  function alternarNovaCategoria() {
+    const nova = $("f-categoria").value === NOVA;
+    $("f-nova-wrap").hidden = !nova;
+    if (nova) $("f-nova-categoria").focus();
+  }
+
+  // Resolve o categoria_id do formulário, criando a categoria se "+ Nova categoria…" estiver escolhida.
+  // Nome igual a uma existente (sem diferenciar maiúsculas, como a API) reaproveita a existente.
+  async function resolverCategoria() {
+    const valor = $("f-categoria").value;
+    if (valor === "") return { id: null };
+    if (valor !== NOVA) return { id: Number(valor) };
+    const nome = $("f-nova-categoria").value.trim();
+    const existente = [...$("f-categoria").options].find(
+      (o) => o.value !== "" && o.value !== NOVA && o.textContent.toLowerCase() === nome.toLowerCase());
+    if (existente) return { id: Number(existente.value) };
+    const r = await fetch("/categorias", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nome }),
+    });
+    const resposta = await r.json();
+    if (!r.ok) throw new Error(resposta.erro || `Erro ${r.status}`);
+    adicionarOpcao(resposta);
+    return { id: resposta.id, criada: resposta.nome };
+  }
+
+  function selecionarCategoria(id) {
+    $("f-categoria").value = id === null ? "" : String(id);
+    $("f-nova-categoria").value = "";
+    alternarNovaCategoria();
   }
 
   function avisar(texto, ok) {
@@ -224,15 +263,26 @@
   async function adicionarTransacao(evento) {
     evento.preventDefault();
     const valor = $("f-valor").value;
+    $("f-salvar").disabled = true;
+    let categoria = null;
+    try {
+      categoria = await resolverCategoria();
+    } catch (err) {
+      avisar("Não foi possível criar a categoria: " + err.message, false);
+      $("f-salvar").disabled = false;
+      return;
+    }
+    // A categoria já existe a partir daqui; deixa ela selecionada, mesmo se a transação falhar.
+    selecionarCategoria(categoria.id);
+    const criada = categoria.criada ? `Categoria "${categoria.criada}" criada. ` : "";
     const corpo = {
       data: $("f-data").value,
       descricao: $("f-descricao").value,
       // input vazio/ inválido vai como texto para a API responder com a mensagem dela
       valor: valor === "" || Number.isNaN(Number(valor)) ? valor : Number(valor),
       tipo: $("f-tipo").value,
-      categoria_id: $("f-categoria").value === "" ? null : Number($("f-categoria").value),
+      categoria_id: categoria.id,
     };
-    $("f-salvar").disabled = true;
     try {
       const r = await fetch("/transacoes", {
         method: "POST",
@@ -241,7 +291,7 @@
       });
       const resposta = await r.json();
       if (!r.ok) throw new Error(resposta.erro || `Erro ${r.status}`);
-      avisar(`Transação adicionada: ${resposta.descricao} (${brl.format(resposta.valor)})`, true);
+      avisar(`${criada}Transação adicionada: ${resposta.descricao} (${brl.format(resposta.valor)})`, true);
       $("f-descricao").value = "";
       $("f-valor").value = "";
       $("f-descricao").focus();
@@ -250,7 +300,7 @@
       $("mes").value = mesDaTransacao;
       await Promise.all([carregarSaldo(), typeof Chart !== "undefined" ? carregarResumo(mesDaTransacao) : null]);
     } catch (err) {
-      avisar("Não foi possível adicionar: " + err.message, false);
+      avisar(`${criada}Não foi possível adicionar a transação: ${err.message}`, false);
     } finally {
       $("f-salvar").disabled = false;
     }
@@ -260,6 +310,7 @@
   const mesAtual = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`;
   $("f-data").value = `${mesAtual}-${String(hoje.getDate()).padStart(2, "0")}`;
   $("form-transacao").addEventListener("submit", adicionarTransacao);
+  $("f-categoria").addEventListener("change", alternarNovaCategoria);
   carregarCategorias();
   $("mes").value = mesAtual;
   $("mes").addEventListener("change", (e) => { if (e.target.value) carregarResumo(e.target.value); });

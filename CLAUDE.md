@@ -239,8 +239,13 @@ docs/            # roteiro de prompts
   (padrão = hoje), descrição, valor, tipo e categoria (opções de `GET /categorias`, "Sem categoria" = `null`);
   envia `POST /transacoes`. **Sem validação própria no navegador** (`novalidate`): a API é a fonte única das
   regras e a mensagem `erro` do 422 é exibida como veio. Após salvar: limpa descrição/valor, recarrega `/saldo`
-  e muda o seletor para o mês da transação criada (recarregando `/resumo`). Editar/excluir/criar categoria pelo
-  dashboard continuam fora (só pela API / `/docs`).
+  e muda o seletor para o mês da transação criada (recarregando `/resumo`). Editar/excluir transações e
+  editar/excluir categorias pelo dashboard continuam fora (só pela API / `/docs`).
+- **(Extensão) Nova categoria pelo formulário:** a última opção da lista é "+ Nova categoria…", que mostra
+  um campo de nome. Ao enviar, o dashboard faz `POST /categorias` **antes** do `POST /transacoes` e usa o id
+  criado. Nome igual a uma categoria da lista (ignorando maiúsculas/espaços) **reaproveita a existente** em vez
+  de dar 422. Se a categoria for criada mas a transação falhar, a mensagem avisa as duas coisas e a categoria
+  nova fica selecionada para a próxima tentativa (não há rollback: a categoria é válida por si só).
 - **(Aula 6) Deploy configurado por ambiente:** `python -m app` lê `HOST`/`PORT`; `GASTOS_DB_PATH` aponta o
   SQLite. A imagem Docker (`python:3.12-slim`, usuário sem root) define `HOST=0.0.0.0` e grava em `/data`, que
   **deve ser um volume persistente** — sem ele, os dados somem a cada novo container/deploy. Nenhuma credencial
