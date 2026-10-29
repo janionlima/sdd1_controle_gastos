@@ -18,6 +18,12 @@ uvicorn app.main:app --reload
 ```
 Documentação interativa: http://127.0.0.1:8000/docs
 
+Testes (dependências de desenvolvimento ficam em `requirements-dev.txt`):
+```bash
+pip install -r requirements-dev.txt
+python -m pytest            # usa banco temporário por teste; nunca toca o gastos.db
+```
+
 ## Estrutura de pastas
 ```
 app/
@@ -25,7 +31,7 @@ app/
   database.py    # acesso a dados: DB_PATH, get_connection(), SCHEMA, init_db()
   models.py      # schemas Pydantic de entrada/saída
   routes/        # um router por recurso (ex.: transacoes.py)
-tests/           # testes pytest (a partir da Aula 5)
+tests/           # pytest + TestClient: conftest.py (fixture `client` com banco temporário) e test_<área>.py
 specs/           # specs de cada aula (fonte de verdade dos requisitos)
 docs/            # roteiro de prompts
 .claude/commands # slash commands do projeto (/implementar-spec)
@@ -72,6 +78,8 @@ docs/            # roteiro de prompts
   | `nome` de categoria repetido | `nome: categoria '<nome>' já existe` |
   | `?categoria=` vazio | `categoria: não pode ser vazia` |
   | `?mes=` fora de `YYYY-MM` (mês 01–12) | `mes: deve ser um mês válido no formato YYYY-MM` |
+  | `data_inicio` > `data_fim` | `data_inicio: não pode ser posterior a data_fim` |
+  | `valor_min` > `valor_max` | `valor_min: não pode ser maior que valor_max` |
   | campo ausente | `<campo>: campo obrigatório` |
   | JSON inválido | `corpo da requisição não é um JSON válido` |
   | outros | `<campo>: <mensagem original do Pydantic>` |
@@ -127,6 +135,19 @@ docs/            # roteiro de prompts
   Valores são números com até 2 casas; `categoria` é o **nome** da categoria (ou `null`).
 - **Query params com tipo validado usam `Annotated[Tipo, Query(...)]`**, nunca `param: Tipo = Query(...)`:
   na segunda forma o FastAPI descarta os validadores (`AfterValidator`) do tipo e aceita qualquer valor.
+- **(Aula 5) Filtros de `GET /transacoes`** — `categoria`, `data_inicio`, `data_fim`, `valor_min`, `valor_max`:
+  todos opcionais, combinados por E, **limites inclusivos** (`>=` / `<=`). Ficam no modelo `FiltrosTransacao`
+  (`models.py`), recebido como `Annotated[FiltrosTransacao, Query()]`; um `model_validator` recusa faixa
+  invertida (422). Início igual ao fim é válido (ex.: período de um dia).
+  - `data_inicio`/`data_fim` usam o mesmo tipo `DataISO` do campo `data` (ISO estrito, mesma mensagem).
+  - `valor_min`/`valor_max`: número finito > 0 (mesmas mensagens de `valor`). Por virem na URL, a string
+    `"50"` é aceita — diferente do `valor` no corpo JSON, que é estrito.
+  - Valor comparado em centavos (`valor_centavos >= ?` com `_para_centavos(...)`), mantendo a conversão só em `database.py`.
+  - A query é montada em `listar_transacoes` juntando **apenas trechos fixos** com `AND`; todo valor vai por `?`.
+- **(Aula 5) Testes:** pytest + `TestClient` (o starlette 1.x exige o pacote `httpx2`). Cada teste recebe a
+  fixture `client`, que faz `monkeypatch` de `app.database.DB_PATH` para um arquivo em `tmp_path` (banco novo e
+  vazio por teste); `conftest.py` também define `GASTOS_DB_PATH` temporário antes de importar o app.
+  Toda spec nova deve vir com testes em `tests/`.
 
 ## Fluxo de trabalho
 - Implementar uma spec por vez com `/implementar-spec specs/<arquivo>.md`: plano → aprovação → implementação → verificação dos critérios de aceite → commit.

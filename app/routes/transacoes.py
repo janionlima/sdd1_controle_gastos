@@ -1,5 +1,7 @@
 """Rotas de transações."""
 
+from typing import Annotated
+
 from fastapi import APIRouter, HTTPException, Query, Response
 
 from app.database import (
@@ -10,7 +12,7 @@ from app.database import (
     excluir_transacao,
     listar_transacoes,
 )
-from app.models import Transacao, TransacaoCreate
+from app.models import FiltrosTransacao, Transacao, TransacaoCreate
 
 router = APIRouter(prefix="/transacoes", tags=["transacoes"])
 
@@ -34,8 +36,8 @@ def criar(payload: TransacaoCreate):
 
 
 @router.get("", response_model=list[Transacao])
-def listar(categoria: str | None = Query(None, min_length=1, description="Nome ou id da categoria")):
-    return listar_transacoes(categoria)
+def listar(filtros: Annotated[FiltrosTransacao, Query()]):
+    return listar_transacoes(filtros)
 
 
 @router.get("/{id}", response_model=Transacao)

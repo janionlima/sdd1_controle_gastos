@@ -3,6 +3,10 @@
 import os
 import sqlite3
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.models import FiltrosTransacao
 
 DB_PATH = os.getenv(
     "GASTOS_DB_PATH",
@@ -118,24 +122,43 @@ def excluir_transacao(id: int) -> bool:
         conn.close()
 
 
-def listar_transacoes(categoria: str | None = None) -> list[dict]:
-    """Lista transações; `categoria` só com dígitos é id, senão é nome (sem diferenciar maiúsculas)."""
+def listar_transacoes(filtros: "FiltrosTransacao | None" = None) -> list[dict]:
+    """Lista transações aplicando os filtros preenchidos (E lógico, limites inclusivos).
+
+    `categoria` só com dígitos é id, senão é nome (sem diferenciar maiúsculas). A query concatena
+    apenas trechos fixos; todo valor vindo do usuário vai por parâmetro vinculado (`?`).
+    """
+    condicoes: list[str] = []
+    params: list = []
+    if filtros is not None:
+        if filtros.categoria is not None:
+            if filtros.categoria.isdigit():
+                condicoes.append("categoria_id = ?")
+                params.append(int(filtros.categoria))
+            else:
+                condicoes.append("categoria_id IN (SELECT id FROM categoria WHERE nome = ?)")
+                params.append(filtros.categoria)
+        if filtros.data_inicio is not None:
+            condicoes.append("data >= ?")
+            params.append(filtros.data_inicio.isoformat())
+        if filtros.data_fim is not None:
+            condicoes.append("data <= ?")
+            params.append(filtros.data_fim.isoformat())
+        if filtros.valor_min is not None:
+            condicoes.append("valor_centavos >= ?")
+            params.append(_para_centavos(filtros.valor_min))
+        if filtros.valor_max is not None:
+            condicoes.append("valor_centavos <= ?")
+            params.append(_para_centavos(filtros.valor_max))
+
+    sql = "SELECT * FROM transacao"
+    if condicoes:
+        sql += " WHERE " + " AND ".join(condicoes)
+    sql += " ORDER BY data DESC, id DESC"
+
     conn = get_connection()
     try:
-        if categoria is None:
-            rows = conn.execute("SELECT * FROM transacao ORDER BY data DESC, id DESC").fetchall()
-        elif categoria.isdigit():
-            rows = conn.execute(
-                "SELECT * FROM transacao WHERE categoria_id = ? ORDER BY data DESC, id DESC",
-                (int(categoria),),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT * FROM transacao WHERE categoria_id IN (SELECT id FROM categoria WHERE nome = ?)"
-                " ORDER BY data DESC, id DESC",
-                (categoria,),
-            ).fetchall()
-        return [_row_to_dict(r) for r in rows]
+        return [_row_to_dict(r) for r in conn.execute(sql, params).fetchall()]
     finally:
         conn.close()
 
