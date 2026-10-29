@@ -72,6 +72,10 @@ class TotalCategoria(BaseModel):
     total: float
 
 
-class Resumo(Saldo):
+class Resumo(BaseModel):
+    # Campos na ordem do contrato da spec: { mes, entradas, saidas, saldo, por_categoria }.
     mes: str
+    entradas: float
+    saidas: float
+    saldo: float
     por_categoria: list[TotalCategoria]

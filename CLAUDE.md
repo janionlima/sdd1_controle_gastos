@@ -99,6 +99,32 @@ docs/            # roteiro de prompts
   Ordenação: `total DESC`, depois nome. Mês sem saídas → `[]`.
 - **(Aula 4) `mes` é obrigatório e estrito** (`YYYY-MM`, mês 01–12; tipo `Mes` em `models.py`); o mês é
   filtrado com `substr(data, 1, 7) = ?`.
+- **(Aula 4) Contrato de resposta** (schemas `Saldo`, `Resumo` e `TotalCategoria` em `models.py`):
+
+  ```jsonc
+  // GET /saldo  → 200 (todas as transações; banco vazio → zeros)
+  { "entradas": 4000.3, "saidas": 5200.29, "saldo": -1199.99 }
+
+  // GET /resumo?mes=2026-08  → 200
+  {
+    "mes": "2026-08",               // eco do parâmetro
+    "entradas": 3000.3,             // soma das entradas do mês
+    "saidas": 200.29,               // soma das saídas do mês (positivo)
+    "saldo": 2800.01,               // entradas - saidas (pode ser negativo)
+    "por_categoria": [              // só saídas; total DESC, depois nome
+      { "categoria": "transporte", "total": 150.0 },
+      { "categoria": null, "total": 49.99 },        // saídas sem categoria
+      { "categoria": "alimentacao", "total": 0.3 }
+    ]
+  }
+
+  // Mês sem transações → 200
+  { "mes": "2026-01", "entradas": 0.0, "saidas": 0.0, "saldo": 0.0, "por_categoria": [] }
+
+  // mes malformado → 422 {"erro": "mes: deve ser um mês válido no formato YYYY-MM"}
+  // mes ausente    → 422 {"erro": "mes: campo obrigatório"}
+  ```
+  Valores são números com até 2 casas; `categoria` é o **nome** da categoria (ou `null`).
 - **Query params com tipo validado usam `Annotated[Tipo, Query(...)]`**, nunca `param: Tipo = Query(...)`:
   na segunda forma o FastAPI descarta os validadores (`AfterValidator`) do tipo e aceita qualquer valor.
 
